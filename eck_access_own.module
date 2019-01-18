@@ -1,0 +1,134 @@
+<?php
+
+/**
+ * @file
+ * Adds access own records functionality to entity construction kit.
+ */
+
+/**
+ * Implements hook_views_api().
+ */
+function eck_access_own_views_api() {
+  return array(
+    'api' => '3',
+    'path' => drupal_get_path('module', 'eck_access_own') . '/views',
+  );
+}
+
+/**
+ * Implements hook_permission().
+ */
+function eck_access_own_permission() {
+
+  module_load_include('inc', 'eck', 'eck.entity_type');
+  module_load_include('inc', 'eck', 'eck.bundle');
+
+  $perms = array();
+
+  $perms_info = array(
+    'eck edit own' => 'Edit Own',
+    'eck delete own' => 'Delete Own',
+    'eck view own' => 'View Own',
+  );
+
+  foreach (EntityType::loadAll() as $entity_type) {
+
+    foreach (Bundle::loadByEntityType($entity_type) as $bundle) {
+      foreach ($perms_info as $op => $op_label) {
+        $perm_name = "{$op} {$entity_type->name} {$bundle->name} entities";
+        $perms[$perm_name] = array(
+          'title' => "{$op_label} {$entity_type->label} {$bundle->label} Entities",
+        );
+      }
+    }
+  }
+
+  return $perms;
+
+
+}
+/**
+ * Default access callback for ECK entities.
+ *
+ * This is used as the default behavior when entity_access() is called to check
+ * access on an entity provided by ECK. Note that in addition to calls from
+ * within this own module, entity_access() is also called by other modules such
+ * as Rules, Entity Reference, etc. (although it is not consistently called
+ * throughout Drupal).
+ *
+ * @param string $op
+ *   The operation being performed. One of 'view', 'update', 'create' or
+ *   'delete'.
+ * @param mixed $entity_or_bundle
+ *   Normally, an entity to check access for. If this is NULL, we are checking
+ *   access for all entities of the given type. If this is a string
+ *   (representing the bundle to check access for; see parallel example in
+ *   node_access()) we are checking access for all entities of the given type
+ *   and bundle.
+ * @param object $account
+ *   The user to check access for. If this is NULL, access will be checked for
+ *   the current user.
+ * @param string $entity_type_name
+ *   A string representing the type of entity to check access for.
+ *
+ * @return bool
+ *   TRUE if access is granted, FALSE otherwise.
+ *
+ * @see entity_access()
+ */
+function eck_access_own__entity_access($op, $entity_or_bundle, $account, $entity_type_name) {
+  // @todo This module uses different CRUD terminology than is normally used in
+  //   Drupal, so we need to convert what entity_access() sent us back to
+  //   something this module will understand.
+  $crud_map = array(
+    'create' => 'add',
+    'update' => 'edit',
+  );
+  if (isset($crud_map[$op])) {
+    $op = $crud_map[$op];
+  }
+
+  global $user;
+  $keys_own = array('view', 'edit', 'delete');
+
+  // Check the relevant permissions. If an entity or bundle is provided, use
+  // that to get the bundle-specific permissions and check those too.
+  $permissions = array(
+    'eck administer entities',
+    "eck {$op} entities",
+  );
+  if (isset($entity_or_bundle)) {
+    $eid = FALSE;
+    if (is_object($entity_or_bundle)) {
+      list($eid, , $bundle_name) = entity_extract_ids($entity_type_name, $entity_or_bundle);
+    }
+    else {
+      $bundle_name = $entity_or_bundle;
+    }
+    $permissions[] = "eck administer {$entity_type_name} {$bundle_name} entities";
+    $permissions[] = "eck {$op} {$entity_type_name} {$bundle_name} entities";
+
+    if ($eid && isset($entity_or_bundle->uid)
+      && in_array($op, $keys_own)
+      && $entity_or_bundle->uid == $user->uid) {
+      $permissions[] = "eck {$op} own {$entity_type_name} {$bundle_name} entities";
+    }
+  }
+
+  // @todo should auto-load entity author here.
+
+  return eck__multiple_access_check($permissions, FALSE, $account);
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function eck_access_own_entity_info_alter(&$entity_info) {
+  // Replase each entity's access callback with access own function.
+  foreach ($entity_info as $k => $v){
+    if (!isset($v['access callback'])) continue;
+    if ($v['access callback'] != 'eck__entity_access') continue;
+    $entity_info[$k]['access callback'] = 'eck_access_own__entity_access';
+
+  }
+}

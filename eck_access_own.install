@@ -1,0 +1,12 @@
+<?php
+
+/**
+ * Implements hook_enable().
+ */
+function eck_access_own_enable() {
+  db_update('system')
+    ->fields(array('weight' => 0))
+    ->condition('type', 'module')
+    ->condition('name', 'eck_access_own')
+    ->execute();
+}
